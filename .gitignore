@@ -1,0 +1,13 @@
+# Exclude PDF source files (large, not needed for the quiz)
+*.pdf
+
+# Exclude backup copies
+*- Copy.*
+*-backup.*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Claude session data
+.claude/
