@@ -148,6 +148,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 /* === Added: study tools === */
 .mode-group { margin-bottom: 14px; }
 .mode-group-title { font-size: 0.75rem; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; text-align: center; }
+.mode-group-title.collapsible { cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 6px; user-select: none; }
+.mode-group-title.collapsible:hover { color: var(--text); }
+.mode-group-title.collapsible .sect-arrow { font-size: 0.65rem; transition: transform 0.15s; display: inline-block; }
+.mode-group.sect-collapsed .sect-arrow { transform: rotate(-90deg); }
+.mode-group.sect-collapsed .sect-body { display: none; }
 .notes-area { margin-top: 14px; background: rgba(234,179,8,0.07); border: 1px solid rgba(234,179,8,0.3); border-radius: 10px; padding: 12px; }
 .notes-area label { display:block; font-size: 0.75rem; color: var(--yellow); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .notes-area textarea { width: 100%; min-height: 70px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-family: inherit; font-size: 0.88rem; resize: vertical; }
@@ -253,6 +258,7 @@ let state = {
   sessionStreak: 0,
   bestSessionStreak: 0,
   smartMixCfg: Storage.get('smartMixCfg', { newPct: 60, wrongPct: 30, bookmarkedPct: 10, count: 20 }),
+  collapsedSections: Storage.get('collapsedSections', { practice: true, smart: true, exam: true, find: true, backup: true }),
   examMode: false,
   examEndTime: null,
   examDurationMin: 120,
@@ -308,6 +314,7 @@ function isOptionCorrect(q, optionText, optionIndex) {
 function saveSession() {
   const session = {
     quizMode: state.quizMode,
+    memorizeMode: state.memorizeMode,
     questionIds: state.questions.map(q => q.id),
     currentIndex: state.currentIndex,
     sessionCorrect: state.sessionCorrect,
@@ -331,6 +338,8 @@ function resumeSession() {
   if (ordered.length === 0) { clearSession(); return; }
   state.mode = 'quiz';
   state.quizMode = s.quizMode;
+  state.memorizeMode = s.memorizeMode || false;
+  state.memorizeRevealed = false;
   state.questions = ordered;
   state.currentIndex = s.currentIndex;
   state.sessionCorrect = s.sessionCorrect;
@@ -748,6 +757,12 @@ function resetProgress() {
   render();
 }
 
+function toggleSection(key) {
+  state.collapsedSections[key] = !state.collapsedSections[key];
+  Storage.set('collapsedSections', state.collapsedSections);
+  render();
+}
+
 function goToMenu() {
   if (state.mode === 'quiz') saveSession();
   state.memorizeMode = false;
@@ -1018,7 +1033,7 @@ function renderMenu(app) {
   if (hasSaved) {
     const s = state.savedSession;
     const remaining = s.questionIds.length - s.currentIndex;
-    const modeLabel = s.quizMode === 'all' ? 'All Questions' : s.quizMode === 'wrong' ? 'Wrong Only' : 'Bookmarked';
+    const modeLabel = s.memorizeMode ? '🧠 Memorize' : s.quizMode === 'all' ? 'All Questions' : s.quizMode === 'wrong' ? 'Wrong Only' : s.quizMode === 'bookmarked' ? 'Bookmarked' : s.quizMode;
     resumeHtml = `
       <div style="background: rgba(59,130,246,0.15); border: 2px solid var(--accent); border-radius: 14px; padding: 20px; margin-bottom: 24px; text-align: center;">
         <div style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;">&#9654; Session In Progress</div>
@@ -1091,57 +1106,77 @@ function renderMenu(app) {
       </div>
     </div>
 
-    <div class="mode-group">
-      <div class="mode-group-title">Practice</div>
-      <div class="mode-selector">
-        <button class="mode-btn" onclick="startQuiz('all')">All <span class="badge">${totalQ}</span></button>
-        <button class="mode-btn" onclick="startQuiz('wrong')">Wrong <span class="badge">${wrongCount}</span></button>
-        <button class="mode-btn" onclick="startQuiz('bookmarked')">Bookmarked <span class="badge">${bookmarkedCount}</span></button>
-        <button class="mode-btn" onclick="state.mode='wrongList'; render();">View Wrong List <span class="badge">${wrongCount}</span></button>
+    <div class="mode-group ${state.collapsedSections.practice ? 'sect-collapsed' : ''}">
+      <div class="mode-group-title collapsible" onclick="toggleSection('practice')">
+        <span class="sect-arrow">&#9660;</span> Practice
+      </div>
+      <div class="sect-body">
+        <div class="mode-selector">
+          <button class="mode-btn" onclick="startQuiz('all')">All <span class="badge">${totalQ}</span></button>
+          <button class="mode-btn" onclick="startQuiz('wrong')">Wrong <span class="badge">${wrongCount}</span></button>
+          <button class="mode-btn" onclick="startQuiz('bookmarked')">Bookmarked <span class="badge">${bookmarkedCount}</span></button>
+          <button class="mode-btn" onclick="state.mode='wrongList'; render();">View Wrong List <span class="badge">${wrongCount}</span></button>
+        </div>
       </div>
     </div>
 
-    <div class="mode-group">
-      <div class="mode-group-title">Smart Study</div>
-      <div class="mode-selector">
-        <button class="mode-btn" onclick="startQuiz('drill')" title="Questions ranked by how often you got them wrong + 'hard' confidence">&#128293; Drill Hardest</button>
-        <button class="mode-btn" onclick="startQuiz('smart')" title="Mix of new + wrong + bookmarked">&#128302; Smart Mix <span class="badge">${cfg.count}</span></button>
-        <button class="mode-btn" onclick="startFlashcards('all')" title="See question, reveal answer, self-grade">&#127921; Flashcards</button>
-        <button class="mode-btn" onclick="startFlashcards('wrong')">Flashcards (Wrong)</button>
+    <div class="mode-group ${state.collapsedSections.smart ? 'sect-collapsed' : ''}">
+      <div class="mode-group-title collapsible" onclick="toggleSection('smart')">
+        <span class="sect-arrow">&#9660;</span> Smart Study
       </div>
-      <div class="smart-mix-cfg">
-        Smart Mix:
-        <label>New % <input type="number" min="0" max="100" value="${cfg.newPct}" onchange="state.smartMixCfg.newPct=parseInt(this.value)||0; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
-        <label>Wrong % <input type="number" min="0" max="100" value="${cfg.wrongPct}" onchange="state.smartMixCfg.wrongPct=parseInt(this.value)||0; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
-        <label>Bookmarked % <input type="number" min="0" max="100" value="${cfg.bookmarkedPct}" onchange="state.smartMixCfg.bookmarkedPct=parseInt(this.value)||0; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
-        <label>Count <input type="number" min="5" max="${totalQ}" value="${cfg.count}" onchange="state.smartMixCfg.count=parseInt(this.value)||20; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
-      </div>
-    </div>
-
-    <div class="mode-group">
-      <div class="mode-group-title">Exam</div>
-      <div class="mode-selector">
-        <button class="mode-btn" onclick="startExam()" title="${state.examQuestionCount} random questions, ${state.examDurationMin}-minute timer">&#9202; Exam Simulation <span class="badge">${state.examQuestionCount}q / ${state.examDurationMin}m</span></button>
-        <button class="mode-btn" onclick="var c=prompt('Number of questions?', state.examQuestionCount); if(c){state.examQuestionCount=Math.max(5,Math.min(${totalQ},parseInt(c)||40));} var t=prompt('Minutes?', state.examDurationMin); if(t){state.examDurationMin=Math.max(5,parseInt(t)||120);} render();">Configure Exam</button>
+      <div class="sect-body">
+        <div class="mode-selector">
+          <button class="mode-btn" onclick="startQuiz('drill')" title="Questions ranked by how often you got them wrong + 'hard' confidence">&#128293; Drill Hardest</button>
+          <button class="mode-btn" onclick="startQuiz('smart')" title="Mix of new + wrong + bookmarked">&#128302; Smart Mix <span class="badge">${cfg.count}</span></button>
+          <button class="mode-btn" onclick="startFlashcards('all')" title="See question, reveal answer, self-grade">&#127921; Flashcards</button>
+          <button class="mode-btn" onclick="startFlashcards('wrong')">Flashcards (Wrong)</button>
+        </div>
+        <div class="smart-mix-cfg">
+          Smart Mix:
+          <label>New % <input type="number" min="0" max="100" value="${cfg.newPct}" onchange="state.smartMixCfg.newPct=parseInt(this.value)||0; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
+          <label>Wrong % <input type="number" min="0" max="100" value="${cfg.wrongPct}" onchange="state.smartMixCfg.wrongPct=parseInt(this.value)||0; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
+          <label>Bookmarked % <input type="number" min="0" max="100" value="${cfg.bookmarkedPct}" onchange="state.smartMixCfg.bookmarkedPct=parseInt(this.value)||0; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
+          <label>Count <input type="number" min="5" max="${totalQ}" value="${cfg.count}" onchange="state.smartMixCfg.count=parseInt(this.value)||20; Storage.set('smartMixCfg', state.smartMixCfg);"></label>
+        </div>
       </div>
     </div>
 
-    <div class="mode-group">
-      <div class="mode-group-title">Find</div>
-      <input type="text" class="search-box" placeholder="&#128269; Search question text, answer, or explanation..." value="${(state.searchQuery||'').replace(/"/g,'&quot;')}" oninput="onSearchInput(this.value)">
-      ${searchHtml}
-      ${missingExpCount > 0 ? '<div class="toolbar-row"><button class="toolbar-btn" onclick="startQuiz(\'missing-exp\')">&#9888; Practice ' + missingExpCount + ' with Missing Explanations</button></div>' : ''}
+    <div class="mode-group ${state.collapsedSections.exam ? 'sect-collapsed' : ''}">
+      <div class="mode-group-title collapsible" onclick="toggleSection('exam')">
+        <span class="sect-arrow">&#9660;</span> Exam
+      </div>
+      <div class="sect-body">
+        <div class="mode-selector">
+          <button class="mode-btn" onclick="startExam()" title="${state.examQuestionCount} random questions, ${state.examDurationMin}-minute timer">&#9202; Exam Simulation <span class="badge">${state.examQuestionCount}q / ${state.examDurationMin}m</span></button>
+          <button class="mode-btn" onclick="var c=prompt('Number of questions?', state.examQuestionCount); if(c){state.examQuestionCount=Math.max(5,Math.min(${totalQ},parseInt(c)||40));} var t=prompt('Minutes?', state.examDurationMin); if(t){state.examDurationMin=Math.max(5,parseInt(t)||120);} render();">Configure Exam</button>
+        </div>
+      </div>
     </div>
 
-    <div class="mode-group">
-      <div class="mode-group-title">Progress Backup</div>
-      <div class="toolbar-row">
-        <button class="toolbar-btn" onclick="exportProgress()" title="Download all your progress as JSON">&#128229; Export JSON</button>
-        <button class="toolbar-btn" onclick="document.getElementById('importFile').click()" title="Restore progress from a JSON file">&#128228; Import JSON</button>
-        <input type="file" id="importFile" class="hidden-file" accept=".json,application/json" onchange="importProgressFile(this)">
-        ${hasBackup ? '<button class="toolbar-btn" onclick="restoreBackup()" title="Restore the auto-backup saved before your last reset/import">&#8630; Undo Reset</button>' : ''}
+    <div class="mode-group ${state.collapsedSections.find ? 'sect-collapsed' : ''}">
+      <div class="mode-group-title collapsible" onclick="toggleSection('find')">
+        <span class="sect-arrow">&#9660;</span> Find
       </div>
-      <div class="small-note" style="text-align:center;">Progress is stored in this browser. Export regularly to keep it safe.</div>
+      <div class="sect-body">
+        <input type="text" class="search-box" placeholder="&#128269; Search question text, answer, or explanation..." value="${(state.searchQuery||'').replace(/"/g,'&quot;')}" oninput="onSearchInput(this.value)">
+        ${searchHtml}
+        ${missingExpCount > 0 ? '<div class="toolbar-row"><button class="toolbar-btn" onclick="startQuiz(\'missing-exp\')">&#9888; Practice ' + missingExpCount + ' with Missing Explanations</button></div>' : ''}
+      </div>
+    </div>
+
+    <div class="mode-group ${state.collapsedSections.backup ? 'sect-collapsed' : ''}">
+      <div class="mode-group-title collapsible" onclick="toggleSection('backup')">
+        <span class="sect-arrow">&#9660;</span> Progress Backup
+      </div>
+      <div class="sect-body">
+        <div class="toolbar-row">
+          <button class="toolbar-btn" onclick="exportProgress()" title="Download all your progress as JSON">&#128229; Export JSON</button>
+          <button class="toolbar-btn" onclick="document.getElementById('importFile').click()" title="Restore progress from a JSON file">&#128228; Import JSON</button>
+          <input type="file" id="importFile" class="hidden-file" accept=".json,application/json" onchange="importProgressFile(this)">
+          ${hasBackup ? '<button class="toolbar-btn" onclick="restoreBackup()" title="Restore the auto-backup saved before your last reset/import">&#8630; Undo Reset</button>' : ''}
+        </div>
+        <div class="small-note" style="text-align:center;">Progress is stored in this browser. Export regularly to keep it safe.</div>
+      </div>
     </div>
 
     <div style="text-align:center; margin-top: 30px;">
@@ -1295,7 +1330,7 @@ function renderQuiz(app) {
       ${!isMemorize && !isFlash && !state.answered ? '<div class="nav-buttons" style="margin-top:16px;"><button class="nav-btn primary" onclick="submitAnswer()" ' + (canSubmit ? '' : 'disabled') + '>Submit Answer</button></div>' : ''}
       ${!isMemorize && state.answered ? explanationHtml : ''}
       ${!isMemorize ? confidenceHtml : ''}
-      ${!isMemorize ? notesHtml : ''}
+      ${!isMemorize || state.memorizeRevealed ? notesHtml : ''}
       ${!isMemorize && !isFlash ? `<div class="nav-buttons">
         <button class="nav-btn secondary" onclick="prevQuestion()" ${state.currentIndex === 0 ? 'disabled' : ''}>Previous</button>
         ${state.answered ?
